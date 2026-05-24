@@ -230,6 +230,43 @@ def passable_strict(ctx, cell, direction):
     return nxt[1] not in ctx.danger_rows
 
 
+from collections import deque
+
+
+def bfs(start, goal_predicate, *, passable_fn,
+        occupied=frozenset(), max_dist=BFS_MAX_DIST):
+    """BFS over (col,row). Returns (distance, first_step_dir) or None."""
+    if goal_predicate(start):
+        return (0, "IDLE")
+
+    # parent[cell] = (prev_cell, direction_taken_from_prev)
+    parent = {start: (None, None)}
+    queue = deque([(start, 0)])
+
+    while queue:
+        cell, dist = queue.popleft()
+        if dist >= max_dist:
+            continue
+        for direction in ("NORTH", "EAST", "SOUTH", "WEST"):
+            if not passable_fn(cell, direction):
+                continue
+            nxt = _step(cell, direction)
+            if nxt in parent or nxt in occupied:
+                continue
+            parent[nxt] = (cell, direction)
+            if goal_predicate(nxt):
+                # walk back to find first step from start
+                step_dir = direction
+                cursor = cell
+                while parent[cursor][0] is not None:
+                    step_dir = parent[cursor][1]
+                    cursor = parent[cursor][0]
+                return (dist + 1, step_dir)
+            queue.append((nxt, dist + 1))
+
+    return None
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}
