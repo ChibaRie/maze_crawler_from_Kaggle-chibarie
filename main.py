@@ -395,6 +395,110 @@ def assign_roles(ctx):
     return roles
 
 
+def pick_factory_build(ctx, factory):
+    """B1..B4: choose a BUILD_* action or return None."""
+    if factory is None or factory.build_cd > 0:
+        return None
+    cfg = ctx.config
+    # B4 late-game stop
+    if cfg.episodeSteps - ctx.turn < LATE_GAME_STOP_BUILD:
+        return None
+    # F3 build throttle
+    if factory.energy < cfg.factoryEnergy * LOW_ENERGY_RATIO:
+        return None
+
+    have_scout = any(u.type == TYPE_SCOUT for u in ctx.my_units)
+    have_miner = any(u.type == TYPE_MINER for u in ctx.my_units)
+    bottleneck = _has_wall_bottleneck(ctx, factory)
+    have_node = bool(ctx.nodes)
+
+    # B1: first build always SCOUT
+    if not have_scout and factory.energy >= cfg.scoutCost:
+        return "BUILD_SCOUT"
+    # B3: wall bottleneck → WORKER
+    if bottleneck and factory.energy >= cfg.workerCost:
+        have_worker = any(u.type == TYPE_WORKER for u in ctx.my_units)
+        if not have_worker:
+            return "BUILD_WORKER"
+    # B2: reachable mining node → MINER
+    if have_node and not have_miner and factory.energy >= cfg.minerCost:
+        return "BUILD_MINER"
+    # otherwise more SCOUTS
+    if factory.energy >= cfg.scoutCost:
+        return "BUILD_SCOUT"
+    return None
+
+
+def _passable_loose_fn(ctx):
+    return lambda cell, d: passable_loose(ctx, cell, d)
+
+
+def _passable_strict_fn(ctx):
+    return lambda cell, d: passable_strict(ctx, cell, d)
+
+
+def assign_targets(ctx):
+    """Pick target cells per role and write into mem['targets']."""
+    targets = {}
+    roles = ctx.mem["roles"]
+    pass_fn = _passable_loose_fn(ctx)
+
+    for u in ctx.my_units:
+        role = roles.get(u.uid)
+        if role in (None, "FACTORY"):
+            continue
+        if role == "HARVESTER":
+            best = None
+            best_d = None
+            for node in ctx.nodes:
+                r = bfs(u.cell, lambda c, n=node: c == n,
+                        passable_fn=pass_fn,
+                        max_dist=MINER_REACH_LIMIT)
+                if r is None:
+                    continue
+                d, _ = r
+                if best_d is None or d < best_d:
+                    best_d, best = d, node
+            if best is not None:
+                targets[u.uid] = best
+            continue
+        if role == "EXPLORER":
+            # Pick a known cell adjacent to an unknown cell, scored by frontier_score.
+            best = None
+            best_score = -1
+            for cell in ctx.walls:
+                if any(
+                    (cell[0] + dc, cell[1] + dr) not in ctx.walls
+                    for dc, dr in DIR_OFFSETS.values()
+                ):
+                    s = frontier_score(ctx, cell)
+                    if s > best_score:
+                        best_score, best = s, cell
+            if best is not None:
+                targets[u.uid] = best
+            continue
+        if role == "GUARD":
+            if ctx.my_factory is not None:
+                targets[u.uid] = (ctx.my_factory.col, ctx.my_factory.row + 1)
+            continue
+        if role == "SAPPER":
+            # Walk the column above the factory; first known wall on the path is target.
+            if ctx.my_factory is not None:
+                fc = ctx.my_factory.col
+                for r in range(ctx.my_factory.row,
+                               min(ctx.north, ctx.my_factory.row + WALL_DETOUR_THRESHOLD) + 1):
+                    val = ctx.walls.get((fc, r))
+                    if val is None:
+                        continue
+                    if val & WALL_N and not is_fixed_wall(ctx.config, (fc, r), "NORTH"):
+                        targets[u.uid] = (fc, r)
+                        break
+            continue
+
+    ctx.mem["targets"] = targets
+    return targets
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}

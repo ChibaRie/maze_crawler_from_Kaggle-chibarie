@@ -123,3 +123,50 @@ def test_frontier_score_prefers_more_unknown(config):
     s_high = frontier_score(ctx, (5, 5))
     # both are surrounded by unknown; north-bias makes (5,5) higher
     assert s_high >= s_low
+
+
+def test_pick_factory_build_first_is_scout(config):
+    from main import pick_factory_build
+
+    me_fac = factory_robot(uid="f", col=5, row=2, energy=1000, owner=0)
+    ctx = _ctx_with_units(config, my=[me_fac])
+    action = pick_factory_build(ctx, ctx.my_factory)
+    assert action == "BUILD_SCOUT"
+
+
+def test_pick_factory_build_low_energy_skips(config):
+    from main import pick_factory_build
+
+    me_fac = factory_robot(uid="f", col=5, row=2,
+                           energy=int(1000 * 0.2), owner=0)
+    ctx = _ctx_with_units(config, my=[me_fac])
+    action = pick_factory_build(ctx, ctx.my_factory)
+    assert action is None
+
+
+def test_pick_factory_build_late_game_stops(config):
+    from main import pick_factory_build
+
+    me_fac = factory_robot(uid="f", col=5, row=2, energy=1000, owner=0)
+    ctx = _ctx_with_units(config, my=[me_fac])
+    # Late-game stop kicks in when episodeSteps - turn < LATE_GAME_STOP_BUILD
+    ctx.mem["turn"] = config.episodeSteps - 5
+    # Rebuild context so ctx.turn reflects the new turn count.
+    from main import build_context
+    ctx = build_context(ctx.obs, config, ctx.mem)
+    action = pick_factory_build(ctx, ctx.my_factory)
+    assert action is None
+
+
+def test_assign_targets_explorer_picks_frontier(config):
+    from main import assign_targets, assign_roles
+
+    me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
+    scout = ("s", [1, 5, 3, 100, 0, 0, 0, 0])
+    walls = [-1] * 400
+    walls[3 * 20 + 5] = 0  # known: scout's cell
+    walls[2 * 20 + 5] = 0  # known: factory's cell
+    ctx = _ctx_with_units(config, my=[me_fac, scout], walls=walls)
+    assign_roles(ctx)
+    targets = assign_targets(ctx)
+    assert "s" in targets
