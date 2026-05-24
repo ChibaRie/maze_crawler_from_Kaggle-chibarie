@@ -189,7 +189,7 @@ def test_decide_explorer_returns_legal_move(config):
     from main import decide_unit, assign_roles, assign_targets
 
     me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
-    scout = ("s", [1, 5, 3, 100, 0, 0, 0, 0])
+    scout = ("s", [1, 5, 3, 50, 0, 0, 0, 0])
     ctx = _ctx_with_units(config, my=[me_fac, scout])
     assign_roles(ctx)
     assign_targets(ctx)
@@ -202,7 +202,7 @@ def test_decide_sapper_at_wall_removes(config):
     from main import decide_unit, assign_roles, assign_targets
 
     me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
-    worker = ("w", [2, 5, 3, 300, 0, 0, 0, 0])
+    worker = ("w", [2, 5, 3, 200, 0, 0, 0, 0])
     walls = [0] * 400
     walls[3 * 20 + 5] = 1  # north wall at (5,3)
     walls[4 * 20 + 5] = 4  # mirror south wall at (5,4) — engine consistency, optional
@@ -243,3 +243,24 @@ def test_agent_pre_reserves_factory_escort_cell(config):
 
     # Worker must not step EAST onto (5, 3) since it's the factory's escort cell.
     assert actions["w"] != "EAST"
+
+
+def test_transfer_when_adjacent_to_factory_overflow(config):
+    from main import maybe_transfer
+
+    me_fac = factory_robot(uid="f", col=5, row=2, energy=1000, owner=0)
+    scout = ("s", [1, 5, 3, 99, 0, 0, 0, 0])  # max_energy 100, gap = 1
+    ctx = _ctx_with_units(config, my=[me_fac, scout])
+    scout_unit = next(u for u in ctx.my_units if u.uid == "s")
+    action = maybe_transfer(ctx, scout_unit)
+    assert action == "TRANSFER_SOUTH"  # scout at (5,3) → factory at (5,2)
+
+
+def test_transfer_skipped_when_low(config):
+    from main import maybe_transfer
+
+    me_fac = factory_robot(uid="f", col=5, row=2, energy=1000, owner=0)
+    scout = ("s", [1, 5, 3, 50, 0, 0, 0, 0])
+    ctx = _ctx_with_units(config, my=[me_fac, scout])
+    scout_unit = next(u for u in ctx.my_units if u.uid == "s")
+    assert maybe_transfer(ctx, scout_unit) is None

@@ -545,6 +545,12 @@ def decide_unit(ctx, unit, reservations, reservation_types):
     role = ctx.mem["roles"].get(unit.uid, "GUARD")
     target = ctx.mem["targets"].get(unit.uid)
 
+    # M1: TRANSFER overflow / factory help — overrides movement when it fires.
+    if unit.type != TYPE_FACTORY:
+        t = maybe_transfer(ctx, unit)
+        if t is not None:
+            return t
+
     # Factory has its own intent ladder
     if unit.type == TYPE_FACTORY:
         candidates = _legal_factory_intents(ctx, unit)
@@ -593,6 +599,51 @@ def decide_unit(ctx, unit, reservations, reservation_types):
     survivors = death_filter(ctx, unit, candidates, reservations,
                              reservation_types=reservation_types)
     return survivors[0] if survivors else "IDLE"
+
+
+_UNIT_MAX_ENERGY = {
+    TYPE_SCOUT: "scoutMaxEnergy",
+    TYPE_WORKER: "workerMaxEnergy",
+    TYPE_MINER: "minerMaxEnergy",
+}
+
+
+def _max_energy_for(ctx, unit):
+    attr = _UNIT_MAX_ENERGY.get(unit.type)
+    if attr is None:
+        return None  # factory has no cap
+    return getattr(ctx.config, attr)
+
+
+def maybe_transfer(ctx, unit):
+    """M1: if adjacent to factory and overflowing, TRANSFER toward it."""
+    if unit.type == TYPE_FACTORY or ctx.my_factory is None:
+        return None
+    fac = ctx.my_factory
+    dx = fac.col - unit.col
+    dy = fac.row - unit.row
+    if abs(dx) + abs(dy) != 1:
+        return None
+    direction = None
+    if dx == 1:
+        direction = "EAST"
+    elif dx == -1:
+        direction = "WEST"
+    elif dy == 1:
+        direction = "NORTH"
+    elif dy == -1:
+        direction = "SOUTH"
+    if direction is None or _wall_between(ctx, unit.cell, direction):
+        return None
+
+    cap = _max_energy_for(ctx, unit)
+    overflow_trigger = (
+        cap is not None and unit.energy >= cap - TRANSFER_OVERFLOW_GAP
+    )
+    factory_low = fac.energy < ctx.config.factoryEnergy * LOW_ENERGY_RATIO
+    if overflow_trigger or factory_low:
+        return f"TRANSFER_{direction}"
+    return None
 
 
 def agent(obs, config):
