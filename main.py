@@ -267,6 +267,77 @@ def bfs(start, goal_predicate, *, passable_fn,
     return None
 
 
+CRUSH_RANK = {TYPE_SCOUT: 1, TYPE_WORKER: 2, TYPE_MINER: 3, TYPE_FACTORY: 4}
+
+# Movement-style action set (used to identify cells the unit will end on)
+MOVEMENT_ACTIONS = {"NORTH", "EAST", "SOUTH", "WEST"}
+JUMP_ACTIONS = {"JUMP_NORTH", "JUMP_EAST", "JUMP_SOUTH", "JUMP_WEST"}
+BUILD_FACTORY_ACTIONS = {"BUILD_SCOUT", "BUILD_WORKER", "BUILD_MINER"}
+
+DIRECTION_SCORE = {"NORTH": 4, "EAST": 2, "WEST": 2, "SOUTH": 1, "IDLE": 0}
+
+
+def direction_score(direction):
+    return DIRECTION_SCORE.get(direction, 0)
+
+
+def predict_next_cell(unit, action):
+    """Cell the unit will occupy after this action resolves."""
+    if action in MOVEMENT_ACTIONS:
+        return _step(unit.cell, action)
+    if action in JUMP_ACTIONS:
+        d = action[len("JUMP_"):]
+        dc, dr = DIR_OFFSETS[d]
+        return (unit.col + 2 * dc, unit.row + 2 * dr)
+    if action in BUILD_FACTORY_ACTIONS:
+        return _step(unit.cell, "NORTH")
+    return unit.cell
+
+
+def _legal_movement_actions(ctx, unit, *, loose=False):
+    """Return the subset of N/E/S/W movement actions that aren't wall-blocked or off-board."""
+    fn = passable_loose if loose else passable_strict
+    legal = []
+    for d in ("NORTH", "EAST", "SOUTH", "WEST"):
+        if fn(ctx, unit.cell, d):
+            legal.append(d)
+    return legal
+
+
+def death_filter(ctx, unit, candidates, reservations, *,
+                 reservation_types=None, enemy_cells=None):
+    """Drop candidates that send `unit` to certain death."""
+    if reservation_types is None:
+        reservation_types = {}
+    if enemy_cells is None:
+        enemy_cells = {(e.col, e.row): e.type for e in ctx.enemy_units}
+
+    survivors = []
+    my_rank = CRUSH_RANK.get(unit.type, 0)
+
+    for action in candidates:
+        if action == "IDLE":
+            survivors.append(action)
+            continue
+        nxt = predict_next_cell(unit, action)
+        # off board check (movements only; specials stay put and were caught above)
+        if action in MOVEMENT_ACTIONS:
+            if not (0 <= nxt[0] < ctx.width and ctx.south <= nxt[1] <= ctx.north):
+                continue
+        # higher-crush enemy already there
+        enemy_t = enemy_cells.get(nxt)
+        if enemy_t is not None and CRUSH_RANK.get(enemy_t, 0) > my_rank:
+            continue
+        # reserved by stronger or equal-type friendly
+        res_t = reservation_types.get(nxt)
+        if res_t is not None:
+            res_rank = CRUSH_RANK.get(res_t, 0)
+            if res_rank > my_rank or (res_t == unit.type and unit.type != TYPE_FACTORY):
+                continue
+        survivors.append(action)
+    return survivors
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}
