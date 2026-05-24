@@ -174,6 +174,62 @@ def build_context(obs, config, mem):
     )
 
 
+def is_fixed_wall(config, cell, direction):
+    """Perimeter outer walls and central mirror axis are fixed (cannot be modified)."""
+    col, _ = cell
+    width = config.width
+    half = width // 2
+    if direction == "WEST" and col == 0:
+        return True
+    if direction == "EAST" and col == width - 1:
+        return True
+    if direction == "EAST" and col == half - 1:
+        return True
+    if direction == "WEST" and col == half:
+        return True
+    return False
+
+
+def _wall_between(ctx, cell, direction):
+    """True if a wall blocks moving in `direction` from `cell` (using known map)."""
+    val = ctx.walls.get(cell)
+    if val is None:
+        return False  # treat unknown as passable (optimistic)
+    return bool(val & DIR_TO_BIT[direction])
+
+
+def _in_bounds(ctx, cell):
+    c, r = cell
+    return 0 <= c < ctx.width and ctx.south <= r <= ctx.north
+
+
+def _step(cell, direction):
+    dc, dr = DIR_OFFSETS[direction]
+    return (cell[0] + dc, cell[1] + dr)
+
+
+def passable_loose(ctx, cell, direction):
+    """Wall + bounds check, ignores danger_rows."""
+    if _wall_between(ctx, cell, direction):
+        return False
+    nxt = _step(cell, direction)
+    return _in_bounds(ctx, nxt)
+
+
+def passable_strict(ctx, cell, direction):
+    """Wall + bounds + danger_rows check.
+
+    If the unit is already standing in a danger row, any safe move is allowed
+    (don't lock the unit in place); otherwise reject moves into a danger row.
+    """
+    if not passable_loose(ctx, cell, direction):
+        return False
+    if cell[1] in ctx.danger_rows:
+        return True
+    nxt = _step(cell, direction)
+    return nxt[1] not in ctx.danger_rows
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}
