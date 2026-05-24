@@ -228,3 +228,18 @@ def test_decide_sapper_skips_fixed_wall(config):
     worker_unit = next(u for u in ctx.my_units if u.uid == "w")
     action = decide_unit(ctx, worker_unit, set(), {})
     assert not action.startswith("REMOVE_") and not action.startswith("BUILD_")
+
+
+def test_agent_pre_reserves_factory_escort_cell(config):
+    from main import agent
+
+    me_fac_uid, me_fac = factory_robot(uid="f", col=5, row=2,
+                                       energy=1000, owner=0)
+    # A friendly worker east-adjacent to the escort cell (5, 3).
+    worker_uid, worker = "w", [2, 4, 3, 300, 0, 0, 0, 0]
+    obs = make_obs(robots={me_fac_uid: me_fac, worker_uid: worker})
+
+    actions = agent(obs, config)
+
+    # Worker must not step EAST onto (5, 3) since it's the factory's escort cell.
+    assert actions["w"] != "EAST"

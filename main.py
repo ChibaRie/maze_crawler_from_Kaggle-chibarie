@@ -613,7 +613,9 @@ def agent(obs, config):
     # Pre-reserve factory escort cells
     if ctx.my_factory is not None:
         f = ctx.my_factory
-        reservations.add((f.col, f.row + 1))
+        escort_cell = (f.col, f.row + 1)
+        reservations.add(escort_cell)
+        reservation_types[escort_cell] = TYPE_FACTORY
 
     for unit in sorted(ctx.my_units,
                        key=lambda u: type_priority.get(u.type, 9)):
