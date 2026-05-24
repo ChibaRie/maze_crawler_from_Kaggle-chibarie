@@ -85,6 +85,95 @@ def memory_update(obs, config, mem):
     mem["turn"] += 1
 
 
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(frozen=True)
+class Unit:
+    uid: str
+    type: int
+    col: int
+    row: int
+    energy: int
+    owner: int
+    move_cd: int
+    jump_cd: int
+    build_cd: int
+
+    @property
+    def cell(self):
+        return (self.col, self.row)
+
+
+@dataclass(frozen=True)
+class Context:
+    obs: Any
+    config: Any
+    mem: dict
+    turn: int
+    south: int
+    north: int
+    width: int
+    me: int
+    walls: dict
+    crystals: dict
+    mines: dict
+    nodes: set
+    my_factory: Any
+    my_units: tuple
+    enemy_units: tuple
+    enemy_factory: Any
+    danger_rows: frozenset
+
+
+def _parse_unit(uid, data):
+    return Unit(
+        uid=uid,
+        type=data[0], col=data[1], row=data[2], energy=data[3], owner=data[4],
+        move_cd=data[5] if len(data) > 5 else 0,
+        jump_cd=data[6] if len(data) > 6 else 0,
+        build_cd=data[7] if len(data) > 7 else 0,
+    )
+
+
+def _parse_dict_keys(d):
+    return {tuple(int(x) for x in k.split(",")): v for k, v in d.items()}
+
+
+def build_context(obs, config, mem):
+    me = obs.player
+    units = [_parse_unit(uid, d) for uid, d in obs.robots.items()]
+    my_units = tuple(u for u in units if u.owner == me)
+    enemy_units = tuple(u for u in units if u.owner != me)
+    my_factory = next((u for u in my_units if u.type == TYPE_FACTORY), None)
+    enemy_factory = next((u for u in enemy_units if u.type == TYPE_FACTORY), None)
+
+    danger_rows = frozenset(
+        range(obs.southBound, obs.southBound + SAFETY_HORIZON)
+    )
+
+    return Context(
+        obs=obs,
+        config=config,
+        mem=mem,
+        turn=mem["turn"],
+        south=obs.southBound,
+        north=obs.northBound,
+        width=config.width,
+        me=me,
+        walls=dict(mem["walls"]),
+        crystals=_parse_dict_keys(obs.crystals),
+        mines=dict(mem["mines"]),
+        nodes=set(mem["mining_nodes"]),
+        my_factory=my_factory,
+        my_units=my_units,
+        enemy_units=enemy_units,
+        enemy_factory=enemy_factory,
+        danger_rows=danger_rows,
+    )
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}
