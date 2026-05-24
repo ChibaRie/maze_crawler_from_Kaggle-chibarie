@@ -596,10 +596,33 @@ def decide_unit(ctx, unit, reservations, reservation_types):
 
 
 def agent(obs, config):
-    """Entry point. Returns dict of {uid: action_str} for our units only."""
+    """Entry point. Drives memory → context → strategy → tactics."""
+    memory_update(obs, config, _MEM)
+    ctx = build_context(obs, config, _MEM)
+
+    assign_roles(ctx)
+    assign_targets(ctx)
+
     actions = {}
-    for uid, data in obs.robots.items():
-        if data[4] != obs.player:
-            continue
-        actions[uid] = "IDLE"
+    reservations = set()
+    reservation_types = {}
+
+    type_priority = {TYPE_FACTORY: 0, TYPE_MINER: 1, TYPE_WORKER: 2,
+                     TYPE_SCOUT: 3}
+
+    # Pre-reserve factory escort cells
+    if ctx.my_factory is not None:
+        f = ctx.my_factory
+        reservations.add((f.col, f.row + 1))
+
+    for unit in sorted(ctx.my_units,
+                       key=lambda u: type_priority.get(u.type, 9)):
+        action = decide_unit(ctx, unit, reservations, reservation_types)
+        actions[unit.uid] = action
+        nxt = predict_next_cell(unit, action)
+        reservations.add(nxt)
+        reservation_types[nxt] = unit.type
+
+    # Record intent for next-turn coherence
+    _MEM["last_actions"] = dict(actions)
     return actions
