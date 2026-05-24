@@ -40,6 +40,51 @@ _MEM: dict = {
 }
 
 
+def memory_update(obs, config, mem):
+    """Single writer for persistent state. Idempotent per-turn merge."""
+    width = config.width
+    south = obs.southBound
+
+    # 1) Prune anything that scrolled off
+    mem["walls"] = {k: v for k, v in mem["walls"].items() if k[1] >= south}
+    mem["mines"] = {k: v for k, v in mem["mines"].items() if k[1] >= south}
+    mem["mining_nodes"] = {c for c in mem["mining_nodes"] if c[1] >= south}
+
+    # 2) Merge wall info from this frame's obs
+    for idx, val in enumerate(obs.walls):
+        if val == -1:
+            continue
+        col = idx % width
+        row = idx // width + south
+        mem["walls"][(col, row)] = val
+
+    # 3) Merge mine info
+    for key, data in obs.mines.items():
+        c, r = (int(x) for x in key.split(","))
+        if r < south:
+            continue
+        mem["mines"][(c, r)] = tuple(data)
+
+    # 4) Merge mining nodes (only currently visible per spec)
+    for key in obs.miningNodes:
+        c, r = (int(x) for x in key.split(","))
+        if r >= south:
+            mem["mining_nodes"].add((c, r))
+
+    # 5) Track enemy factory sightings
+    for uid, d in obs.robots.items():
+        if d[0] == TYPE_FACTORY and d[4] != obs.player:
+            mem["enemy_factory_seen"] = (d[1], d[2])
+
+    # 6) Drop roles/targets for vanished UIDs
+    live = set(obs.robots.keys())
+    mem["roles"] = {u: r for u, r in mem["roles"].items() if u in live}
+    mem["targets"] = {u: t for u, t in mem["targets"].items() if u in live}
+
+    # 7) Tick
+    mem["turn"] += 1
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}
