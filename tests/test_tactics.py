@@ -170,3 +170,61 @@ def test_assign_targets_explorer_picks_frontier(config):
     assign_roles(ctx)
     targets = assign_targets(ctx)
     assert "s" in targets
+
+
+def test_decide_factory_low_energy_no_build(config):
+    from main import decide_unit, assign_roles, assign_targets
+
+    me_fac = factory_robot(uid="f", col=5, row=2,
+                           energy=int(1000 * 0.1), owner=0)
+    ctx = _ctx_with_units(config, my=[me_fac])
+    assign_roles(ctx)
+    assign_targets(ctx)
+    action = decide_unit(ctx, ctx.my_factory, set(), {})
+    assert action != "BUILD_SCOUT"
+    assert action in {"NORTH", "IDLE"}
+
+
+def test_decide_explorer_returns_legal_move(config):
+    from main import decide_unit, assign_roles, assign_targets
+
+    me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
+    scout = ("s", [1, 5, 3, 100, 0, 0, 0, 0])
+    ctx = _ctx_with_units(config, my=[me_fac, scout])
+    assign_roles(ctx)
+    assign_targets(ctx)
+    scout_unit = next(u for u in ctx.my_units if u.uid == "s")
+    action = decide_unit(ctx, scout_unit, set(), {})
+    assert action in {"NORTH", "EAST", "SOUTH", "WEST", "IDLE"}
+
+
+def test_decide_sapper_at_wall_removes(config):
+    from main import decide_unit, assign_roles, assign_targets
+
+    me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
+    worker = ("w", [2, 5, 3, 300, 0, 0, 0, 0])
+    walls = [0] * 400
+    walls[3 * 20 + 5] = 1  # north wall at (5,3)
+    walls[4 * 20 + 5] = 4  # mirror south wall at (5,4) — engine consistency, optional
+    ctx = _ctx_with_units(config, my=[me_fac, worker], walls=walls)
+    # Force SAPPER role
+    ctx.mem["roles"]["w"] = "SAPPER"
+    ctx.mem["targets"]["w"] = (5, 3)
+    worker_unit = next(u for u in ctx.my_units if u.uid == "w")
+    action = decide_unit(ctx, worker_unit, set(), {})
+    assert action == "REMOVE_NORTH"
+
+
+def test_decide_sapper_skips_fixed_wall(config):
+    from main import decide_unit, assign_roles
+
+    # Worker sitting next to perimeter wall; if assigned a fixed wall target,
+    # decide_unit must NOT issue REMOVE.
+    me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
+    worker = ("w", [2, 0, 3, 300, 0, 0, 0, 0])
+    ctx = _ctx_with_units(config, my=[me_fac, worker])
+    ctx.mem["roles"]["w"] = "SAPPER"
+    ctx.mem["targets"]["w"] = (0, 3)  # would imply REMOVE_WEST → fixed
+    worker_unit = next(u for u in ctx.my_units if u.uid == "w")
+    action = decide_unit(ctx, worker_unit, set(), {})
+    assert not action.startswith("REMOVE_") and not action.startswith("BUILD_")

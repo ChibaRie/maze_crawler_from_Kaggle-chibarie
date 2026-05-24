@@ -499,6 +499,102 @@ def assign_targets(ctx):
     return targets
 
 
+def _legal_factory_intents(ctx, factory):
+    """Build candidate actions for the factory in priority order."""
+    candidates = []
+    # F1 emergency: factory near south boundary → push NORTH first
+    near_south = factory.row - ctx.south < SAFETY_MARGIN
+    # F2 JUMP if NORTH is walled and worker can't break it in 2 turns
+    blocked_north = _wall_between(ctx, factory.cell, "NORTH")
+    if near_south and not blocked_north:
+        candidates.append("NORTH")
+    if blocked_north and factory.jump_cd == 0:
+        # JUMP only if landing in bounds and not in danger_rows for strict
+        landing = (factory.col, factory.row + 2)
+        if (
+            ctx.south <= landing[1] <= ctx.north
+            and landing[1] not in ctx.danger_rows
+        ):
+            candidates.append("JUMP_NORTH")
+    build = pick_factory_build(ctx, factory)
+    if build is not None:
+        candidates.append(build)
+    if not blocked_north:
+        candidates.append("NORTH")
+    candidates.append("IDLE")
+    # de-dup while preserving order
+    seen = set()
+    ordered = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            ordered.append(c)
+    return ordered
+
+
+def _bfs_first_step(ctx, unit, target, *, loose=False):
+    fn = _passable_loose_fn(ctx) if loose else _passable_strict_fn(ctx)
+    res = bfs(unit.cell, lambda c: c == target, passable_fn=fn)
+    if res is None:
+        return None
+    return res[1]
+
+
+def decide_unit(ctx, unit, reservations, reservation_types):
+    """Per-unit decision pipeline. Always returns a legal action string."""
+    role = ctx.mem["roles"].get(unit.uid, "GUARD")
+    target = ctx.mem["targets"].get(unit.uid)
+
+    # Factory has its own intent ladder
+    if unit.type == TYPE_FACTORY:
+        candidates = _legal_factory_intents(ctx, unit)
+        survivors = death_filter(
+            ctx, unit, candidates, reservations,
+            reservation_types=reservation_types,
+        )
+        if survivors:
+            return survivors[0]
+        return "IDLE"
+
+    # HARVESTER: TRANSFORM if on node
+    if role == "HARVESTER" and unit.cell in ctx.nodes \
+            and unit.energy >= ctx.config.transformCost:
+        return "TRANSFORM"
+
+    # SAPPER: BUILD/REMOVE if at the target wall and not fixed
+    if role == "SAPPER" and target is not None and unit.cell == target \
+            and unit.energy >= ctx.config.wallRemoveCost:
+        # Determine which side has the bottleneck wall (default NORTH)
+        for d in ("NORTH", "EAST", "SOUTH", "WEST"):
+            if _wall_between(ctx, unit.cell, d) and not is_fixed_wall(
+                ctx.config, unit.cell, d
+            ):
+                return f"REMOVE_{d}"
+        # Fall through to movement if no removable wall here.
+
+    # Default: BFS toward target, fall back to direction score.
+    direction = None
+    if target is not None:
+        direction = _bfs_first_step(ctx, unit, target,
+                                    loose=(role == "EXPLORER"))
+
+    legal = _legal_movement_actions(
+        ctx, unit, loose=(role == "EXPLORER")
+    )
+    candidates = []
+    if direction in legal:
+        candidates.append(direction)
+    # backup directions ordered by direction_score
+    for d in sorted(legal, key=direction_score, reverse=True):
+        if d not in candidates:
+            candidates.append(d)
+    candidates.append("IDLE")
+
+    survivors = death_filter(ctx, unit, candidates, reservations,
+                             reservation_types=reservation_types)
+    return survivors[0] if survivors else "IDLE"
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}
