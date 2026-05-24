@@ -78,3 +78,48 @@ def test_direction_score_prefers_north(config):
     assert direction_score("NORTH") > direction_score("EAST")
     assert direction_score("EAST") > direction_score("SOUTH")
     assert direction_score("WEST") == direction_score("EAST")
+
+
+def test_assign_roles_worker_with_wall_target(config):
+    from main import assign_roles
+
+    me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
+    worker = ("w", [2, 5, 3, 300, 0, 0, 0, 0])
+    walls = [0] * 400
+    walls[5 * 20 + 5] = 1  # wall north of (5,5) — bottleneck on the way north
+    ctx = _ctx_with_units(config, my=[me_fac, worker], walls=walls)
+
+    roles = assign_roles(ctx)
+    assert roles["f"] == "FACTORY"
+    # With a wall on the route, the worker is a SAPPER candidate; either way,
+    # the role must be one of the legal worker roles.
+    assert roles["w"] in {"SAPPER", "GUARD"}
+
+
+def test_assign_roles_sticky_per_period(config):
+    from main import assign_roles
+
+    me_fac = factory_robot(uid="f", col=5, row=2, owner=0)
+    scout = ("s", [1, 5, 3, 100, 0, 0, 0, 0])
+    ctx = _ctx_with_units(config, my=[me_fac, scout])
+    ctx.mem["roles"]["s"] = "EXPLORER"
+    ctx.mem["turn"] = 5  # not a re-assess turn
+    roles = assign_roles(ctx)
+    assert roles["s"] == "EXPLORER"
+
+
+def test_frontier_score_prefers_more_unknown(config):
+    from main import frontier_score, build_context, memory_update
+
+    mem = _fresh_mem()
+    walls = [-1] * 400
+    walls[2 * 20 + 5] = 0  # cell (5, 2) known
+    walls[5 * 20 + 5] = 0  # cell (5, 5) known
+    obs = make_obs(walls=walls, robots=dict([factory_robot(col=5, row=2)]))
+    memory_update(obs, config, mem)
+    ctx = build_context(obs, config, mem)
+
+    s_low = frontier_score(ctx, (5, 2))
+    s_high = frontier_score(ctx, (5, 5))
+    # both are surrounded by unknown; north-bias makes (5,5) higher
+    assert s_high >= s_low

@@ -338,6 +338,63 @@ def death_filter(ctx, unit, candidates, reservations, *,
     return survivors
 
 
+def frontier_score(ctx, cell):
+    """E1 + E2: count -1 cells in EXPLORE_KERNEL window, weighted by north bias."""
+    half = EXPLORE_KERNEL // 2
+    unknown = 0
+    for dc in range(-half, half + 1):
+        for dr in range(-half, half + 1):
+            probe = (cell[0] + dc, cell[1] + dr)
+            if not (0 <= probe[0] < ctx.width):
+                continue
+            if not (ctx.south <= probe[1] <= ctx.north):
+                continue
+            if probe not in ctx.walls:
+                unknown += 1
+    span = max(ctx.north - ctx.south, 1)
+    bias = 1.0 + NORTH_BIAS * (cell[1] - ctx.south) / span
+    return unknown * bias
+
+
+def _has_wall_bottleneck(ctx, factory):
+    """Cheap heuristic: is there at least one known non-fixed wall in factory column above?"""
+    if factory is None:
+        return False
+    for r in range(factory.row + 1, min(factory.row + WALL_DETOUR_THRESHOLD,
+                                        ctx.north) + 1):
+        val = ctx.walls.get((factory.col, r))
+        if val is None:
+            continue
+        if val & WALL_N and not is_fixed_wall(ctx.config, (factory.col, r), "NORTH"):
+            return True
+    return False
+
+
+def assign_roles(ctx):
+    """Assign roles, respecting stickiness within ROLE_REASSIGN_PERIOD."""
+    roles = dict(ctx.mem["roles"])
+    reassess = (ctx.turn % ROLE_REASSIGN_PERIOD) == 0
+
+    bottleneck = _has_wall_bottleneck(ctx, ctx.my_factory)
+    have_node = bool(ctx.nodes)
+
+    for u in ctx.my_units:
+        if u.type == TYPE_FACTORY:
+            roles[u.uid] = "FACTORY"
+            continue
+        if u.uid in roles and not reassess:
+            continue
+        if u.type == TYPE_SCOUT:
+            roles[u.uid] = "EXPLORER"
+        elif u.type == TYPE_WORKER:
+            roles[u.uid] = "SAPPER" if bottleneck else "GUARD"
+        elif u.type == TYPE_MINER:
+            roles[u.uid] = "HARVESTER" if have_node else "GUARD"
+
+    ctx.mem["roles"] = roles
+    return roles
+
+
 def agent(obs, config):
     """Entry point. Returns dict of {uid: action_str} for our units only."""
     actions = {}
