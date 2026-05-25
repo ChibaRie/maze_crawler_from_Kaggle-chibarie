@@ -258,12 +258,6 @@ print([(i, s.reward) for i, s in enumerate(env.steps[-1])])
 "
 ```
 
-## 提交到 Kaggle
-
-```bash
-kaggle competitions submit maze-crawler -f main.py -m "v2: scout-first planning, energy hoarding, known-only BFS"
-```
-
 ## 后续改进方向
 
 以下是 v1 设计文档中延迟的子策略，可能在 v3 中实现：
