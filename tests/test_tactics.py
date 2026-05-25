@@ -180,7 +180,7 @@ def test_decide_factory_low_energy_no_build(config):
     ctx = _ctx_with_units(config, my=[me_fac])
     assign_roles(ctx)
     assign_targets(ctx)
-    action = decide_unit(ctx, ctx.my_factory, set(), {})
+    action = decide_unit(ctx, ctx.my_factory, set(), {}, {})
     assert action != "BUILD_SCOUT"
     assert action in {"NORTH", "IDLE"}
 
@@ -194,7 +194,7 @@ def test_decide_explorer_returns_legal_move(config):
     assign_roles(ctx)
     assign_targets(ctx)
     scout_unit = next(u for u in ctx.my_units if u.uid == "s")
-    action = decide_unit(ctx, scout_unit, set(), {})
+    action = decide_unit(ctx, scout_unit, set(), {}, {})
     assert action in {"NORTH", "EAST", "SOUTH", "WEST", "IDLE"}
 
 
@@ -211,7 +211,7 @@ def test_decide_sapper_at_wall_removes(config):
     ctx.mem["roles"]["w"] = "SAPPER"
     ctx.mem["targets"]["w"] = (5, 3)
     worker_unit = next(u for u in ctx.my_units if u.uid == "w")
-    action = decide_unit(ctx, worker_unit, set(), {})
+    action = decide_unit(ctx, worker_unit, set(), {}, {})
     assert action == "REMOVE_NORTH"
 
 
@@ -226,23 +226,21 @@ def test_decide_sapper_skips_fixed_wall(config):
     ctx.mem["roles"]["w"] = "SAPPER"
     ctx.mem["targets"]["w"] = (0, 3)  # would imply REMOVE_WEST → fixed
     worker_unit = next(u for u in ctx.my_units if u.uid == "w")
-    action = decide_unit(ctx, worker_unit, set(), {})
+    action = decide_unit(ctx, worker_unit, set(), {}, {})
     assert not action.startswith("REMOVE_") and not action.startswith("BUILD_")
 
 
-def test_agent_pre_reserves_factory_escort_cell(config):
+def test_agent_factory_skips_build_when_spawn_occupied(config):
     from main import agent
 
     me_fac_uid, me_fac = factory_robot(uid="f", col=5, row=2,
                                        energy=1000, owner=0)
-    # A friendly worker east-adjacent to the escort cell (5, 3).
-    worker_uid, worker = "w", [2, 4, 3, 300, 0, 0, 0, 0]
+    worker_uid, worker = "w", [2, 5, 3, 200, 0, 0, 0, 0]
     obs = make_obs(robots={me_fac_uid: me_fac, worker_uid: worker})
 
     actions = agent(obs, config)
 
-    # Worker must not step EAST onto (5, 3) since it's the factory's escort cell.
-    assert actions["w"] != "EAST"
+    assert actions["f"] not in {"BUILD_SCOUT", "BUILD_WORKER", "BUILD_MINER"}
 
 
 def test_transfer_when_adjacent_to_factory_overflow(config):
