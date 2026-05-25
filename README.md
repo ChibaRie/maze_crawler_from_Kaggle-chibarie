@@ -26,7 +26,7 @@ Maze Crawler 是一场双人即时策略对抗赛。双方各持一座 **Factory
 │   └── match_random.py     # 对战随机 Agent 的手动测试工具
 ├── docs/
 │   └── superpowers/
-│       ├── specs/           # 设计文档（英文 + 中文）
+│       ├── specs/           # 设计文档
 │       └── plans/           # 实现计划
 ├── README.md               # 竞赛规则速查
 ├── AGENTS.md               # 入门指南与 CLI 操作手册
