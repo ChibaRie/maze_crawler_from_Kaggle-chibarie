@@ -2,7 +2,7 @@
 
 Kaggle [Maze Crawler](https://www.kaggle.com/competitions/maze-crawler/) 竞赛的 AI Agent，基于启发式状态机 + BFS 寻路架构。
 
-## 竞赛简介
+## 简介
 
 Maze Crawler 是一场双人即时策略对抗赛。双方各持一座 **Factory**（工厂），在一座 20x20、持续向北卷动的迷宫中生存。地图具有东西对称性，存在战争迷雾。最后存活的工厂获胜；若双方均存活至 500 步，则按 **总能量 → 单位数量 → 平局** 依次决胜。
 
